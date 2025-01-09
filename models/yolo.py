@@ -10,7 +10,7 @@ from copy import deepcopy
 from pathlib import Path
 
 FILE = Path(__file__).absolute()
-sys.path.append(FILE.parents[1].as_posix())  # add yolov5/ to path
+sys.path.append(FILE.parents[1].asposix())  # add yolov5/ to path
 
 from models.common import *
 from models.experimental import *

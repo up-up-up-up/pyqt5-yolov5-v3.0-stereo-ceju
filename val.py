@@ -167,7 +167,7 @@ def run(data,
         t0 += t - t_
 
         # Run model
-        out, train_out = model(img, augment=augment)  # inference and training outputs
+        out, train_out = model(img, augment=augment, val=True)  # inference and training outputs
         t1 += time_sync() - t
 
         # Compute loss
