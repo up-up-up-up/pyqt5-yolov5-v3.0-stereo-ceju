@@ -184,7 +184,7 @@ class Contract(nn.Module):
         s = self.gain
         x = x.view(N, C, H // s, s, W // s, s)  # x(1,64,40,2,40,2)
         x = x.permute(0, 3, 5, 1, 2, 4).contiguous()  # x(1,2,2,64,40,40)
-        return x.view(N, C * s * s, H // s, W // s)  # x(1,256,40,40)
+        return x.view(N, C * s * s, H // s, W // s)
 
 
 class Expand(nn.Module):
@@ -198,7 +198,7 @@ class Expand(nn.Module):
         s = self.gain
         x = x.view(N, s, s, C // s ** 2, H, W)  # x(1,2,2,16,80,80)
         x = x.permute(0, 3, 4, 1, 5, 2).contiguous()  # x(1,16,80,2,80,2)
-        return x.view(N, C // s ** 2, H * s, W * s)  # x(1,16,160,160)
+        return x.view(N, C // s ** 2, H * s, W * s)
 
 
 class Concat(nn.Module):

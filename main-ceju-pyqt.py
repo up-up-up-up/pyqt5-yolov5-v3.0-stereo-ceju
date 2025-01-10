@@ -12,6 +12,7 @@ import torch.backends.cudnn as cudnn
 import os
 import time
 import cv2
+import pyrealsense2 as rs
 
 from models.experimental import attempt_load
 from utils.datasets import LoadImages, LoadWebcam
@@ -48,6 +49,24 @@ class DetThread(QThread):
         self.percent_length = 1000              # 进度条
         self.rate_check = True                  # 是否启用延时
         self.rate = 100                         # 延时HZ
+
+    def initialize_realsense(self):
+        pipeline = rs.pipeline()
+        config = rs.config()
+        config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+        config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+        pipeline.start(config)
+        return pipeline
+
+    def capture_realsense_frames(self, pipeline):
+        frames = pipeline.wait_for_frames()
+        depth_frame = frames.get_depth_frame()
+        color_frame = frames.get_color_frame()
+        if not depth_frame or not color_frame:
+            return None, None
+        depth_image = np.asanyarray(depth_frame.get_data())
+        color_image = np.asanyarray(color_frame.get_data())
+        return depth_image, color_image
 
     @torch.no_grad()
     def run(self,
@@ -90,7 +109,9 @@ class DetThread(QThread):
                 model.half()  # to FP16
 
             # Dataloader
-            if self.source.isnumeric() or self.source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://')):
+            if self.source == 'realsense':
+                pipeline = self.initialize_realsense()
+            elif self.source.isnumeric() or self.source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://')):
                 view_img = check_imshow()
                 cudnn.benchmark = True  # set True to speed up constant image size inference
                 dataset = LoadWebcam(self.source, img_size=imgsz, stride=stride)
@@ -105,11 +126,15 @@ class DetThread(QThread):
             # 跳帧检测
             jump_count = 0
             start_time = time.time()
-            dataset = iter(dataset)
+            if self.source != 'realsense':
+                dataset = iter(dataset)
             while True:
                 # 手动停止
                 if self.jump_out:
-                    self.vid_cap.release()
+                    if self.source == 'realsense':
+                        pipeline.stop()
+                    else:
+                        self.vid_cap.release()
                     self.send_percent.emit(0)
                     self.send_msg.emit('停止')
                     break
@@ -131,7 +156,12 @@ class DetThread(QThread):
                     self.current_weight = self.weights
                 # 暂停开关
                 if self.is_continue:
-                    path, img, im0s, self.vid_cap = next(dataset)
+                    if self.source == 'realsense':
+                        depth_image, im0s = self.capture_realsense_frames(pipeline)
+                        if depth_image is None or im0s is None:
+                            continue
+                    else:
+                        path, img, im0s, self.vid_cap = next(dataset)
                     # jump_count += 1
                     # if jump_count % 5 != 0:
                     #     continue
@@ -141,14 +171,17 @@ class DetThread(QThread):
                         fps = int(30/(time.time()-start_time))
                         self.send_fps.emit('fps：'+str(fps))
                         start_time = time.time()
-                    if self.vid_cap:
+                    if self.source != 'realsense' and self.vid_cap:
                         percent = int(count/self.vid_cap.get(cv2.CAP_PROP_FRAME_COUNT)*self.percent_length)
                         self.send_percent.emit(percent)
                     else:
                         percent = self.percent_length
 
                     statistic_dic = {name: 0 for name in names}
-                    img = torch.from_numpy(img).to(device)
+                    if self.source != 'realsense':
+                        img = torch.from_numpy(img).to(device)
+                    else:
+                        img = torch.from_numpy(im0s).to(device)
                     img = img.half() if half else img.float()  # uint8 to fp16/32
                     img /= 255.0  # 0 - 255 to 0.0 - 1.0
                     if img.ndimension() == 3:
